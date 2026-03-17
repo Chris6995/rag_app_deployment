@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import File, UploadFile
 from llama_index.core import Settings, SimpleDirectoryReader, StorageContext, VectorStoreIndex
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
@@ -68,9 +69,13 @@ def create_collection():
             raise
 
 # función principal para ingerir un archivo, que lee el contenido, genera embeddings, y los almacena en Qdrant con la metadata adecuada
-def ingest_file(file_path: Path, filename: str):
+def ingest_file(file_path: Path, filename: str, chunk_size: int, chunk_overlap: int):
     configure_embed_model()
     create_collection()
+    Settings.text_splitter = SentenceSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
     # leer el contenido del archivo utilizando SimpleDirectoryReader, lo que permite manejar diferentes formatos de documentos de manera sencilla
     documents = SimpleDirectoryReader(input_files=[str(file_path)]).load_data()
     doc_id = build_doc_id(file_path, filename)
@@ -98,7 +103,11 @@ def ingest_file(file_path: Path, filename: str):
     }
 
 # endpoint de FastAPI para manejar la carga de archivos, que recibe un archivo, lo guarda temporalmente, y luego llama a la función de ingestión para procesarlo y almacenarlo en Qdrant
-async def ingest_document_file(file: UploadFile = File(...)):
+async def ingest_document_file(
+    file: UploadFile = File(...),
+    chunk_size: int = 700,
+    chunk_overlap: int = 80,
+):
     suffix = Path(file.filename).suffix or ".txt"
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
@@ -106,6 +115,6 @@ async def ingest_document_file(file: UploadFile = File(...)):
         temp_path = Path(temp_file.name)
 
     try:
-        return ingest_file(temp_path, file.filename)
+        return ingest_file(temp_path, file.filename, chunk_size, chunk_overlap)
     finally:
         temp_path.unlink(missing_ok=True)

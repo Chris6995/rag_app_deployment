@@ -1,9 +1,10 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
+from llama_index.core.postprocessor import SentenceTransformerRerank
 from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.openai_like import OpenAILike
@@ -26,7 +27,12 @@ EMBEDDING_MODEL = os.getenv(
     "sentence-transformers/all-MiniLM-L6-v2",
 ).strip()
 SIMILARITY_TOP_K = int(os.getenv("SIMILARITY_TOP_K", "4"))
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "3"))
+RERANK_MODEL = os.getenv(
+    "RERANK_MODEL",
+    "cross-encoder/ms-marco-MiniLM-L-2-v2",
+).strip()
+LLM_TEMPERATURE = 0
 
 QA_TEMPLATE = """Context information is below:
 ---------------------
@@ -91,6 +97,10 @@ def configure_models():
 
 def get_query_engine(doc_id: str):
     configure_models()
+    rerank = SentenceTransformerRerank(
+        model=RERANK_MODEL,
+        top_n=RERANK_TOP_N,
+    )
 
     client = get_qdrant_client()
     vector_store = QdrantVectorStore(
@@ -111,6 +121,7 @@ def get_query_engine(doc_id: str):
         similarity_top_k=SIMILARITY_TOP_K,
         filters=filters,
         llm=Settings.llm,
+        node_postprocessors=[rerank],
     )
 
     query_engine.update_prompts(
@@ -126,9 +137,13 @@ def health_check():
 
 
 @app.post("/ingest")
-async def ingest_route(file: UploadFile = File(...)):
+async def ingest_route(
+    file: UploadFile = File(...),
+    chunk_size: int = Form(700),
+    chunk_overlap: int = Form(80),
+):
     try:
-        return await ingest_document_file(file)
+        return await ingest_document_file(file, chunk_size, chunk_overlap)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

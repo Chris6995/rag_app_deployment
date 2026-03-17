@@ -20,9 +20,13 @@ if "doc_id" not in st.session_state:
     st.session_state.doc_id = None
 
 
-def ingest_file(uploaded_file):
+def ingest_file(uploaded_file, chunk_size: int, chunk_overlap: int):
     response = requests.post(
         f"{API_URL}/ingest",
+        data={
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+        },
         files={"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)},
         timeout=180,
     )
@@ -46,6 +50,8 @@ with st.sidebar:
         "Sube un archivo",
         type=["pdf", "txt", "md", "docx"],
     )
+    chunk_size = st.number_input("Chunk size", min_value=100, max_value=3000, value=700, step=50)
+    chunk_overlap = st.number_input("Chunk overlap", min_value=0, max_value=1000, value=80, step=10)
 
     if st.button("Indexar documento", use_container_width=True):
         if uploaded_file is None:
@@ -53,7 +59,7 @@ with st.sidebar:
         else:
             with st.spinner("Indexando documento..."):
                 try:
-                    result = ingest_file(uploaded_file)
+                    result = ingest_file(uploaded_file, int(chunk_size), int(chunk_overlap))
                     st.session_state.doc_id = result["doc_id"]
                     st.session_state.messages = []
                     st.success(
