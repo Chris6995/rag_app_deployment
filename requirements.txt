@@ -11,6 +11,7 @@ llama-index-embeddings-huggingface==0.5.3
 llama-index-llms-openai-like==0.3.4
 qdrant-client>=1.14.0
 sentence-transformers==3.4.1
+huggingface-hub==0.36.2
 
 pypdf==5.4.0
 python-docx==1.1.2
