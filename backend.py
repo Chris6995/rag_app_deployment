@@ -15,6 +15,8 @@ logger.info("Iniciando proceso de carga de módulos...")
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from llama_index.postprocessor.cohere_rerank import CohereRerank
+from llama_index.embeddings.cohere import CohereEmbedding
 
 logger.info("✅ Módulos de LlamaIndex cargados correctamente")
 
@@ -24,18 +26,26 @@ QDRANT_URL = os.getenv("QDRANT_URL", "").strip()
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "").strip()
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "rag_documents").strip()
 
+COHERE_API_KEY = os.getenv("COHERE_API_KEY", "").strip()
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile").strip()
-EMBEDDING_MODEL = os.getenv(
-    "EMBEDDING_MODEL",
-    "sentence-transformers/all-MiniLM-L6-v2",
-).strip()
+# EMBEDDING_MODEL = os.getenv(
+#     "EMBEDDING_MODEL",
+#     "sentence-transformers/all-MiniLM-L6-v2",
+# ).strip()
 SIMILARITY_TOP_K = int(os.getenv("SIMILARITY_TOP_K", "4"))
 RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "3"))
-RERANK_MODEL = os.getenv(
-    "RERANK_MODEL",
-    "cross-encoder/ms-marco-MiniLM-L-2-v2",
-).strip()
+# RERANK_MODEL = os.getenv(
+#     "RERANK_MODEL",
+#     "cross-encoder/ms-marco-MiniLM-L-2-v2",
+# ).strip()
+rerank_postprocessor = CohereRerank(
+    api_key=COHERE_API_KEY,
+    model="rerank-multilingual-v3.0",
+    top_n=RERANK_TOP_N
+    # input_type="search_query", # Importante para RAG
+)
 LLM_TEMPERATURE = 0
 
 QA_TEMPLATE = """Context information is below:
@@ -84,15 +94,20 @@ def get_qdrant_client():
 
     return client
 
+from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
 
 def configure_models():
     from llama_index.llms.openai_like import OpenAILike
-    from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
-    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+    # from llama_index.embeddings.huggingface import HuggingFaceEmbedding
     if not GROQ_API_KEY:
         raise ValueError("Missing GROQ_API_KEY.")
 
-    Settings.embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+    # Settings.embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+    Settings.embed_model = CohereEmbedding(
+        cohere_api_key=COHERE_API_KEY,
+        model_name="embed-multilingual-v3.0",
+        input_type="search_query", # Importante para RAG
+    )
     logger.info("✅ Modelo de Embedding listo")
     Settings.llm = OpenAILike(
         model=LLM_MODEL,
@@ -105,14 +120,14 @@ def configure_models():
 
 
 def get_query_engine(doc_id: str):
-    from llama_index.core.postprocessor import SentenceTransformerRerank
+    # from llama_index.core.postprocessor import SentenceTransformerRerank
     from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
     from llama_index.vector_stores.qdrant import QdrantVectorStore
     configure_models()
-    rerank = SentenceTransformerRerank(
-        model=RERANK_MODEL,
-        top_n=RERANK_TOP_N,
-    )
+    # rerank = SentenceTransformerRerank(
+    #     model=RERANK_MODEL,
+    #     top_n=RERANK_TOP_N,
+    # )
     logger.info("✅ Reranker listo")
     client = get_qdrant_client()
     vector_store = QdrantVectorStore(
@@ -133,7 +148,7 @@ def get_query_engine(doc_id: str):
         similarity_top_k=SIMILARITY_TOP_K,
         filters=filters,
         llm=Settings.llm,
-        node_postprocessors=[rerank],
+        node_postprocessors=[rerank_postprocessor],
     )
 
     query_engine.update_prompts(

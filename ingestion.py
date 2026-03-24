@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from fastapi import File, UploadFile
 from llama_index.core import Settings, SimpleDirectoryReader, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+# from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.embeddings.cohere import CohereEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -33,7 +34,11 @@ def get_qdrant_client():
 
 # configurar el modelo de embedding para que esté disponible globalmente en la aplicación, evitando la necesidad de inicializarlo repetidamente
 def configure_embed_model():
-    Settings.embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+    Settings.embed_model = CohereEmbedding(
+        api_key= os.getenv("COHERE_API_KEY", "").strip(),
+        model_name="embed-multilingual-v3.0",
+        input_type="search_query", # Importante para RAG
+    )
 
 # construir un doc_id único basado en el contenido del archivo y su nombre, para evitar duplicados y facilitar la gestión de documentos
 def build_doc_id(file_path: Path, filename: str):
