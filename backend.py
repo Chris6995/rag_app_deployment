@@ -1,4 +1,16 @@
 import os
+import sys
+import logging
+
+# --- CONFIGURACIÓN DE LOGS (Haz esto lo primero) ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)] # Obliga a enviar a la consola de Render
+)
+logger = logging.getLogger("RAG_BACKEND")
+logger.info("Iniciando proceso de carga de módulos...")
+
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -13,6 +25,7 @@ from qdrant_client import QdrantClient
 
 from ingestion import ingest_document_file
 
+logger.info("✅ Módulos de LlamaIndex cargados correctamente")
 
 load_dotenv()
 
@@ -86,6 +99,7 @@ def configure_models():
         raise ValueError("Missing GROQ_API_KEY.")
 
     Settings.embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+    logger.info("✅ Modelo de Embedding listo")
     Settings.llm = OpenAILike(
         model=LLM_MODEL,
         api_base="https://api.groq.com/openai/v1",
@@ -93,6 +107,7 @@ def configure_models():
         temperature=LLM_TEMPERATURE,
         is_chat_model=True,
     )
+    logger.info("✅ LLM configurado")
 
 
 def get_query_engine(doc_id: str):
@@ -101,13 +116,13 @@ def get_query_engine(doc_id: str):
         model=RERANK_MODEL,
         top_n=RERANK_TOP_N,
     )
-
+    logger.info("✅ Reranker listo")
     client = get_qdrant_client()
     vector_store = QdrantVectorStore(
         client=client,
         collection_name=QDRANT_COLLECTION,
     )
-
+    logger.info(f"Creando índice para doc_id: {doc_id}...")
     index = VectorStoreIndex.from_vector_store(
         vector_store=vector_store,
         embed_model=Settings.embed_model,
@@ -127,7 +142,7 @@ def get_query_engine(doc_id: str):
     query_engine.update_prompts(
         {"response_synthesizer:text_qa_template": PromptTemplate(QA_TEMPLATE)}
     )
-
+    logger.info("✅ Query Engine generado con éxito")
     return query_engine
 
 
