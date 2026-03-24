@@ -15,15 +15,6 @@ logger.info("Iniciando proceso de carga de módulos...")
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
-from llama_index.core.postprocessor import SentenceTransformerRerank
-from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.openai_like import OpenAILike
-from llama_index.vector_stores.qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
-
-from ingestion import ingest_document_file
 
 logger.info("✅ Módulos de LlamaIndex cargados correctamente")
 
@@ -71,7 +62,7 @@ app.add_middleware(
 def get_qdrant_client():
     if not QDRANT_URL or not QDRANT_API_KEY:
         raise ValueError("Missing QDRANT_URL or QDRANT_API_KEY.")
-
+    from qdrant_client import QdrantClient
     client = QdrantClient(
         url=QDRANT_URL,
         api_key=QDRANT_API_KEY,
@@ -95,6 +86,9 @@ def get_qdrant_client():
 
 
 def configure_models():
+    from llama_index.llms.openai_like import OpenAILike
+    from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
+    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
     if not GROQ_API_KEY:
         raise ValueError("Missing GROQ_API_KEY.")
 
@@ -111,6 +105,9 @@ def configure_models():
 
 
 def get_query_engine(doc_id: str):
+    from llama_index.core.postprocessor import SentenceTransformerRerank
+    from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
+    from llama_index.vector_stores.qdrant import QdrantVectorStore
     configure_models()
     rerank = SentenceTransformerRerank(
         model=RERANK_MODEL,
@@ -158,6 +155,7 @@ async def ingest_route(
     chunk_overlap: int = Form(80),
 ):
     try:
+        from ingestion import ingest_document_file
         return await ingest_document_file(file, chunk_size, chunk_overlap)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
