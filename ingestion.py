@@ -4,6 +4,18 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import sys
+import logging
+
+# --- CONFIGURACIÓN DE LOGS (Haz esto lo primero) ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)] # Obliga a enviar a la consola de Render
+)
+logger = logging.getLogger("RAG_BACKEND")
+logger.info("Iniciando proceso de carga de módulos...")
+
 from dotenv import load_dotenv
 from fastapi import File, UploadFile
 from llama_index.core import Settings, SimpleDirectoryReader, StorageContext, VectorStoreIndex
@@ -13,9 +25,26 @@ from llama_index.embeddings.cohere import CohereEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+from llama_index.core import set_global_handler
 
 # cargar las variables de entorno desde un archivo .env para configurar la conexión a Qdrant y el modelo de embedding
 load_dotenv()
+
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+
+if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY:
+    set_global_handler(
+        "langfuse",
+        public_key=LANGFUSE_PUBLIC_KEY,
+        secret_key=LANGFUSE_SECRET_KEY,
+        host=LANGFUSE_HOST
+    )
+    logger.info("🚀 Langfuse configurado y listo para monitorizar")
+else:
+    logger.warning("⚠️ No se encontraron las claves de Langfuse. La monitorización está desactivada.")
+
 
 QDRANT_URL = os.getenv("QDRANT_URL", "").strip()
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "").strip()

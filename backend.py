@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import time
 
 # --- CONFIGURACIÓN DE LOGS (Haz esto lo primero) ---
 logging.basicConfig(
@@ -15,12 +16,40 @@ logger.info("Iniciando proceso de carga de módulos...")
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
 from llama_index.postprocessor.cohere_rerank import CohereRerank
 from llama_index.embeddings.cohere import CohereEmbedding
+from llama_index.core import set_global_handler
+from llama_index.core.callbacks import CallbackManager
+from langfuse.llama_index import LlamaIndexCallbackHandler
 
 logger.info("✅ Módulos de LlamaIndex cargados correctamente")
 
 load_dotenv()
+
+from langfuse import Langfuse
+
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com").strip()
+
+langfuse = None
+langfuse_handler = None
+if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY:
+    langfuse = Langfuse(
+        public_key=LANGFUSE_PUBLIC_KEY,
+        secret_key=LANGFUSE_SECRET_KEY,
+        host=LANGFUSE_HOST,
+    )
+    langfuse_handler = LlamaIndexCallbackHandler(
+        public_key=LANGFUSE_PUBLIC_KEY,
+        secret_key=LANGFUSE_SECRET_KEY,
+        host=LANGFUSE_HOST,
+    )
+    Settings.callback_manager = CallbackManager([langfuse_handler])
+    logger.info("✅ Langfuse configurado")
+else:
+    logger.warning("⚠️ Langfuse no configurado: faltan claves")
 
 QDRANT_URL = os.getenv("QDRANT_URL", "").strip()
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "").strip()
@@ -30,16 +59,10 @@ COHERE_API_KEY = os.getenv("COHERE_API_KEY", "").strip()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile").strip()
-# EMBEDDING_MODEL = os.getenv(
-#     "EMBEDDING_MODEL",
-#     "sentence-transformers/all-MiniLM-L6-v2",
-# ).strip()
+
 SIMILARITY_TOP_K = int(os.getenv("SIMILARITY_TOP_K", "4"))
 RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "3"))
-# RERANK_MODEL = os.getenv(
-#     "RERANK_MODEL",
-#     "cross-encoder/ms-marco-MiniLM-L-2-v2",
-# ).strip()
+
 rerank_postprocessor = CohereRerank(
     api_key=COHERE_API_KEY,
     model="rerank-multilingual-v3.0",
@@ -94,15 +117,12 @@ def get_qdrant_client():
 
     return client
 
-from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
-
 def configure_models():
     from llama_index.llms.openai_like import OpenAILike
-    # from llama_index.embeddings.huggingface import HuggingFaceEmbedding
     if not GROQ_API_KEY:
         raise ValueError("Missing GROQ_API_KEY.")
 
-    # Settings.embed_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+ 
     Settings.embed_model = CohereEmbedding(
         cohere_api_key=COHERE_API_KEY,
         model_name="embed-multilingual-v3.0",
@@ -124,17 +144,18 @@ def get_query_engine(doc_id: str):
     from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
     from llama_index.vector_stores.qdrant import QdrantVectorStore
     configure_models()
-    # rerank = SentenceTransformerRerank(
-    #     model=RERANK_MODEL,
-    #     top_n=RERANK_TOP_N,
-    # )
+
     logger.info("✅ Reranker listo")
+
     client = get_qdrant_client()
+
     vector_store = QdrantVectorStore(
         client=client,
         collection_name=QDRANT_COLLECTION,
     )
+
     logger.info(f"Creando índice para doc_id: {doc_id}...")
+
     index = VectorStoreIndex.from_vector_store(
         vector_store=vector_store,
         embed_model=Settings.embed_model,
@@ -156,6 +177,20 @@ def get_query_engine(doc_id: str):
     )
     logger.info("✅ Query Engine generado con éxito")
     return query_engine
+    # chat_engine = index.as_chat_engine(
+    #     chat_mode="context",
+    #     memory=memory,
+    #     llm=Settings.llm,
+    #     node_postprocessors=[rerank_postprocessor],
+    #     system_prompt=(
+    #         "Eres un asistente técnico. Responde de forma concisa usando el contexto "
+    #         "proporcionado y el historial de la conversación."
+    #     ),
+    #     # Filtramos por el documento específico como hacías antes
+    #     filters=MetadataFilters(filters=[MetadataFilter(key="rag_doc_id", value=doc_id)])
+    # )
+
+    # return chat_engine
 
 
 @app.get("/health")
